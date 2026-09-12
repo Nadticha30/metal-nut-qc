@@ -59,11 +59,37 @@ custom_css = """
         border-right: 2px solid #FBCFE8 !important;
     }
     
+    [data-testid="stSidebar"] label, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
+        color: #1F2937 !important;
+    }
+
     .sidebar-header {
         color: #881337 !important;
         font-weight: 700;
         font-size: 20px;
         margin-bottom: 10px;
+    }
+
+    /* 🛠️ แก้ไขสีข้อความใน st.metric ให้เห็นชัดเจน 100% */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF !important;
+        border: 1px solid #FECDD3 !important;
+        padding: 10px 14px !important;
+        border-radius: 10px !important;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
+        margin-bottom: 8px !important;
+    }
+
+    div[data-testid="stMetricLabel"] p, div[data-testid="stMetricLabel"] label, div[data-testid="stMetricLabel"] {
+        color: #9F1239 !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+    }
+
+    div[data-testid="stMetricValue"] div, div[data-testid="stMetricValue"] {
+        color: #881337 !important;
+        font-weight: 700 !important;
+        font-size: 26px !important;
     }
 
     /* Step Card */
@@ -222,7 +248,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# 6. Header หลัก (ปรับแก้เป็นชื่อใหม่ M.A.T.R.I.X. Nut เรียบร้อย)
+# 6. Header หลัก
 st.markdown("""
 <div class="header-banner">
     <h1 style="color: #881337; margin:0; font-size:30px; font-weight: 700;">🔩 M.A.T.R.I.X. Nut</h1>
