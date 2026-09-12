@@ -65,6 +65,28 @@ custom_css = """
         margin-bottom: 10px;
     }
 
+    /* Radio Button Custom Styling */
+    div[data-testid="stRadio"] > label p {
+        color: #881337 !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+    }
+
+    div[data-testid="stRadio"] div[role="radiogroup"] label p,
+    div[data-testid="stRadio"] div[role="radiogroup"] span {
+        color: #1F2937 !important;
+        font-size: 17px !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stRadio"] div[role="radiogroup"] label {
+        background-color: #FFFFFF !important;
+        padding: 8px 14px !important;
+        border-radius: 8px !important;
+        border: 1px solid #FECDD3 !important;
+        margin-right: 10px !important;
+    }
+
     div[data-testid="stMetric"] {
         background-color: #FFFFFF !important;
         border: 1px solid #FECDD3 !important;
