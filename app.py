@@ -1,40 +1,128 @@
+import io
+import sqlite3
+import time
+from collections import Counter
+from datetime import datetime
+
 import cv2
 import numpy as np
+import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from ultralytics import YOLO
-from collections import Counter
 
 st.set_page_config(
-    page_title="M.A.T.R.I.X. Nut - QC Platform",
+    page_title="M.A.T.R.I.X. Nut - QC & Power BI Enterprise",
     page_icon="🔩",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-if 'total_scanned' not in st.session_state:
-    st.session_state.total_scanned = 0
-if 'pass_count' not in st.session_state:
-    st.session_state.pass_count = 0
-if 'fail_count' not in st.session_state:
-    st.session_state.fail_count = 0
-if 'qc_stage' not in st.session_state:
-    st.session_state.qc_stage = 'capture'
-if 'camera_key' not in st.session_state:
-    st.session_state.camera_key = 0
-if 'should_scroll' not in st.session_state:
-    st.session_state.should_scroll = False
+
+def get_shift(now_datetime):
+  hour = now_datetime.hour
+  if 8 <= hour < 16:
+    return "Shift A (Day)"
+  elif 16 <= hour < 24:
+    return "Shift B (Evening)"
+  else:
+    return "Shift C (Night)"
+
+
+def init_db():
+  conn = sqlite3.connect("qc_metrics.db")
+  cursor = conn.cursor()
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS qc_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME,
+            inspection_date TEXT,
+            inspection_time TEXT,
+            shift TEXT,
+            status TEXT,
+            total_defects INTEGER,
+            crack_count INTEGER,
+            scratch_count INTEGER,
+            confidence_used REAL,
+            processing_time_ms REAL
+        )
+    """)
+  conn.commit()
+  conn.close()
+
+
+def save_log(status, total_defects, crack_cnt, scratch_cnt, conf, proc_time_ms):
+  conn = sqlite3.connect("qc_metrics.db")
+  cursor = conn.cursor()
+  now = datetime.now()
+  ts = now.strftime("%Y-%m-%d %H:%M:%S")
+  date_str = now.strftime("%Y-%m-%d")
+  time_str = now.strftime("%H:%M:%S")
+  shift_name = get_shift(now)
+
+  cursor.execute(
+      """
+        INSERT INTO qc_logs (
+            timestamp, inspection_date, inspection_time, shift, status, 
+            total_defects, crack_count, scratch_count, confidence_used, processing_time_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+      (
+          ts,
+          date_str,
+          time_str,
+          shift_name,
+          status,
+          total_defects,
+          crack_cnt,
+          scratch_cnt,
+          conf,
+          proc_time_ms,
+      ),
+  )
+  conn.commit()
+  conn.close()
+
+
+def get_all_logs():
+  conn = sqlite3.connect("qc_metrics.db")
+  df = pd.read_sql_query(
+      "SELECT * FROM qc_logs ORDER BY id DESC", conn
+  )
+  conn.close()
+  return df
+
+
+def export_to_excel(df):
+  output = io.BytesIO()
+  with pd.ExcelWriter(output, engine="openpyxl") as writer:
+    df.to_excel(writer, index=False, sheet_name="QC_Inspection_Logs")
+  return output.getvalue()
+
+
+init_db()
+
+if "total_scanned" not in st.session_state:
+  st.session_state.total_scanned = 0
+if "pass_count" not in st.session_state:
+  st.session_state.pass_count = 0
+if "fail_count" not in st.session_state:
+  st.session_state.fail_count = 0
+if "qc_stage" not in st.session_state:
+  st.session_state.qc_stage = "capture"
+if "camera_key" not in st.session_state:
+  st.session_state.camera_key = 0
+if "should_scroll" not in st.session_state:
+  st.session_state.should_scroll = False
 
 if st.session_state.should_scroll:
-    st.session_state.should_scroll = False
-    components.html(
-        """
-        <script>
-            window.parent.scrollTo({top: 0, behavior: 'smooth'});
-        </script>
-        """,
-        height=0
-    )
+  st.session_state.should_scroll = False
+  components.html(
+      "<script>window.parent.scrollTo({top: 0, behavior:"
+      " 'smooth'});</script>",
+      height=0,
+  )
 
 custom_css = """
 <style>
@@ -53,10 +141,6 @@ custom_css = """
         background-color: #FDF2F4 !important;
         border-right: 2px solid #FBCFE8 !important;
     }
-    
-    [data-testid="stSidebar"] label, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
-        color: #1F2937 !important;
-    }
 
     .sidebar-header {
         color: #881337 !important;
@@ -65,7 +149,6 @@ custom_css = """
         margin-bottom: 10px;
     }
 
-    /* Radio Button Custom Styling */
     div[data-testid="stRadio"] > label p {
         color: #881337 !important;
         font-size: 18px !important;
@@ -81,10 +164,11 @@ custom_css = """
 
     div[data-testid="stRadio"] div[role="radiogroup"] label {
         background-color: #FFFFFF !important;
-        padding: 8px 14px !important;
+        padding: 10px 16px !important;
         border-radius: 8px !important;
-        border: 1px solid #FECDD3 !important;
+        border: 1.5px solid #FECDD3 !important;
         margin-right: 10px !important;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
     }
 
     div[data-testid="stMetric"] {
@@ -93,42 +177,18 @@ custom_css = """
         padding: 10px 14px !important;
         border-radius: 10px !important;
         box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
-        margin-bottom: 8px !important;
     }
 
-    div[data-testid="stMetricLabel"] p, div[data-testid="stMetricLabel"] label, div[data-testid="stMetricLabel"] {
+    div[data-testid="stMetricLabel"] p {
         color: #9F1239 !important;
         font-weight: 600 !important;
         font-size: 14px !important;
     }
 
-    div[data-testid="stMetricValue"] div, div[data-testid="stMetricValue"] {
+    div[data-testid="stMetricValue"] div {
         color: #881337 !important;
         font-weight: 700 !important;
         font-size: 26px !important;
-    }
-
-    .step-card {
-        background-color: #FFFFFF !important;
-        border-left: 4px solid #F43F5E !important;
-        padding: 14px !important;
-        margin-bottom: 12px !important;
-        border-radius: 8px !important;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.05) !important;
-        color: #1F2937 !important;
-        font-size: 14px !important;
-        line-height: 1.6 !important;
-    }
-
-    .step-card p, .step-card span, .step-card div {
-        color: #1F2937 !important;
-    }
-
-    .step-title {
-        font-weight: 700 !important;
-        color: #9F1239 !important;
-        font-size: 16px !important;
-        margin-bottom: 8px !important;
     }
 
     .header-banner {
@@ -178,7 +238,6 @@ custom_css = """
         font-weight: 600 !important;
         font-size: 15px !important;
         padding: 10px 16px !important;
-        transition: all 0.2s ease-in-out !important;
     }
 
     div.stButton > button[kind="primary"] {
@@ -187,75 +246,66 @@ custom_css = """
         border: 1px solid #BE123C !important;
         box-shadow: 0 3px 6px rgba(225, 29, 72, 0.25) !important;
     }
-
-    div.stButton > button[kind="primary"]:hover {
-        background-color: #BE123C !important;
-        border-color: #9F1239 !important;
-        color: #FFFFFF !important;
-    }
-
-    div.stButton > button[kind="secondary"], div.stButton > button:not([kind="primary"]) {
-        background-color: #FFFFFF !important;
-        color: #1F2937 !important;
-        border: 1.5px solid #D1D5DB !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.04) !important;
-    }
-
-    div.stButton > button[kind="secondary"]:hover, div.stButton > button:not([kind="primary"]):hover {
-        background-color: #F3F4F6 !important;
-        border-color: #9CA3AF !important;
-        color: #111827 !important;
-    }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
+
 @st.cache_resource
 def load_model():
-    return YOLO("best.pt")
+  return YOLO("best.pt")
+
 
 model = load_model()
 
 with st.sidebar:
-    st.markdown("<div class='sidebar-header'>⚙️ การตั้งค่าระบบ</div>", unsafe_allow_html=True)
-    
-    conf_threshold = st.slider(
-        "🎯 ความไวการตรวจจับ AI (Confidence)", 
-        min_value=0.2, 
-        max_value=0.9, 
-        value=0.5, 
-        step=0.05
-    )
-    
+  st.markdown(
+      "<div class='sidebar-header'>⚙️ เมนูหลักระบบ</div>", unsafe_allow_html=True
+  )
+  app_mode = st.radio(
+      "เลือกโหมดการทำงาน:",
+      [
+          "🔍 ตรวจชิ้นงาน (Real-time QC)",
+          "📜 ประวัติการตรวจ & Export",
+          "📊 Power BI Dashboard",
+      ],
+  )
+
+  if app_mode == "🔍 ตรวจชิ้นงาน (Real-time QC)":
     st.markdown("<hr style='border-color:#FBCFE8;'>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-header'>📊 สรุปยอดการตรวจ (Shift Summary)</div>", unsafe_allow_html=True)
-    
+    conf_threshold = st.slider(
+        "🎯 ความไวการตรวจจับ AI (Confidence)",
+        min_value=0.2,
+        max_value=0.9,
+        value=0.5,
+        step=0.05,
+    )
+
+    st.markdown("<hr style='border-color:#FBCFE8;'>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='sidebar-header'>📊 สรุปยอดการตรวจ (Shift Summary)</div>",
+        unsafe_allow_html=True,
+    )
+
     col_sb1, col_sb2 = st.columns(2)
     col_sb1.metric("จำนวนที่ตรวจ", f"{st.session_state.total_scanned} ชิ้น")
-    
-    pass_rate = (st.session_state.pass_count / st.session_state.total_scanned * 100) if st.session_state.total_scanned > 0 else 0
+
+    pass_rate = (
+        (st.session_state.pass_count / st.session_state.total_scanned * 100)
+        if st.session_state.total_scanned > 0
+        else 0
+    )
     col_sb2.metric("อัตราผ่าน", f"{pass_rate:.1f}%")
-    
+
     col_sb3, col_sb4 = st.columns(2)
     col_sb3.metric("🟢 PASS", f"{st.session_state.pass_count}")
     col_sb4.metric("🔴 FAIL", f"{st.session_state.fail_count}")
 
     if st.button("🗑️ รีเซ็ตสถิติ", use_container_width=True):
-        st.session_state.total_scanned = 0
-        st.session_state.pass_count = 0
-        st.session_state.fail_count = 0
-        st.rerun()
-
-    st.markdown("<hr style='border-color:#FBCFE8;'>", unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="step-card">
-        <div class="step-title">📌 วิธีตรวจชิ้นงาน</div>
-        <p style="margin: 0 0 6px 0;">1. เลือกวิธี <b>ถ่ายภาพสด</b> หรือ <b>อัปโหลดรูปภาพ</b></p>
-        <p style="margin: 0 0 6px 0;">2. เลือกรูปแล้วกด <b>ยืนยันส่งตรวจ</b></p>
-        <p style="margin: 0;">3. ตรวจสอบผล และกด <b>ตรวจสอบชิ้นถัดไป</b></p>
-    </div>
-    """, unsafe_allow_html=True)
+      st.session_state.total_scanned = 0
+      st.session_state.pass_count = 0
+      st.session_state.fail_count = 0
+      st.rerun()
 
 st.markdown("""
 <div class="header-banner">
@@ -264,137 +314,227 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-col_cam, col_result = st.columns([1.1, 1], gap="large")
+if app_mode == "🔍 ตรวจชิ้นงาน (Real-time QC)":
+  col_cam, col_result = st.columns([1.1, 1], gap="large")
 
-with col_cam:
-    st.markdown("<h3 style='color: #881337;'>📸 1. นำเข้าภาพชิ้นงาน (Image Input)</h3>", unsafe_allow_html=True)
-    
+  with col_cam:
+    st.markdown(
+        "<h3 style='color: #881337;'>📸 1. นำเข้าภาพชิ้นงาน (Image Input)</h3>",
+        unsafe_allow_html=True,
+    )
+
     input_method = st.radio(
         "เลือกช่องทางนำเข้าภาพ:",
         ["📸 ถ่ายภาพสด (Camera)", "📁 เลือกรูปจากคลัง / อัปโหลดไฟล์"],
-        horizontal=True
+        horizontal=True,
     )
-    
+
     img_file_buffer = None
 
     if input_method == "📸 ถ่ายภาพสด (Camera)":
-        st.markdown("""
-        <div class="focus-guide">
-            🎯 <b>คำแนะนำโฟกัส:</b> จัดวางน็อตให้อยู่กึ่งกลางกล้อง รักษาระยะห่าง 10-15 ซม. และหลีกเลี่ยงแสงสะท้อน
-        </div>
-        """, unsafe_allow_html=True)
-        img_file_buffer = st.camera_input("", key=f"cam_input_{st.session_state.camera_key}", help="กดถ่ายภาพชิ้นงานน็อตโลหะ")
+      st.markdown("""
+            <div class="focus-guide">
+                🎯 <b>คำแนะนำโฟกัส:</b> จัดวางน็อตให้อยู่กึ่งกลางกล้อง รักษาระยะห่าง 10-15 ซม. และหลีกเลี่ยงแสงสะท้อน
+            </div>
+            """, unsafe_allow_html=True)
+      img_file_buffer = st.camera_input(
+          "",
+          key=f"cam_input_{st.session_state.camera_key}",
+          help="กดถ่ายภาพชิ้นงานน็อตโลหะ",
+      )
     else:
-        st.markdown("""
-        <div class="focus-guide">
-            📁 <b>คำแนะนำอัปโหลด:</b> เลือกรูปภาพจากอัลบั้มมือถือ หรือโฟลเดอร์ในคอมพิวเตอร์ (.jpg, .jpeg, .png)
-        </div>
-        """, unsafe_allow_html=True)
-        img_file_buffer = st.file_uploader(
-            "เลือกรูปภาพชิ้นงานน็อต", 
-            type=["jpg", "jpeg", "png"],
-            key=f"file_uploader_{st.session_state.camera_key}"
-        )
+      st.markdown("""
+            <div class="focus-guide">
+                📁 <b>คำแนะนำอัปโหลด:</b> เลือกรูปภาพจากอัลบั้มมือถือ หรือโฟลเดอร์ในคอมพิวเตอร์ (.jpg, .jpeg, .png)
+            </div>
+            """, unsafe_allow_html=True)
+      img_file_buffer = st.file_uploader(
+          "เลือกรูปภาพชิ้นงานน็อต",
+          type=["jpg", "jpeg", "png"],
+          key=f"file_uploader_{st.session_state.camera_key}",
+      )
 
     if img_file_buffer is not None:
-        st.image(img_file_buffer, caption="📷 ตัวอย่างภาพถ่ายเตรียมส่งตรวจ", use_container_width=True)
-        
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("✅ ยืนยันใช้รูปนี้ส่งตรวจ", type="primary", use_container_width=True):
-                st.session_state.qc_stage = 'analyze'
-                st.rerun()
-        with col_btn2:
-            if st.button("🔄 เลือก/ถ่ายรูปใหม่", use_container_width=True):
-                st.session_state.camera_key += 1
-                st.session_state.qc_stage = 'capture'
-                st.session_state.should_scroll = True
-                st.rerun()
+      st.image(
+          img_file_buffer,
+          caption="📷 ตัวอย่างภาพถ่ายเตรียมส่งตรวจ",
+          use_container_width=True,
+      )
 
-with col_result:
-    st.markdown("<h3 style='color: #881337;'>📊 2. ผลการวิเคราะห์และตรวจสอบ (QC Analysis)</h3>", unsafe_allow_html=True)
-    
-    if img_file_buffer is not None and st.session_state.qc_stage == 'analyze':
-        with st.spinner("🔍 AI กำลังประมวลผลวิเคราะห์จุดบกพร่อง..."):
-            bytes_data = img_file_buffer.getvalue()
-            cv2_img = cv2.imdecode(np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR)
+      col_btn1, col_btn2 = st.columns(2)
+      with col_btn1:
+        if st.button(
+            "✅ ยืนยันใช้รูปนี้ส่งตรวจ",
+            type="primary",
+            use_container_width=True,
+        ):
+          st.session_state.qc_stage = "analyze"
+          st.rerun()
+      with col_btn2:
+        if st.button("🔄 เลือก/ถ่ายรูปใหม่", use_container_width=True):
+          st.session_state.camera_key += 1
+          st.session_state.qc_stage = "capture"
+          st.session_state.should_scroll = True
+          st.rerun()
 
-            results = model.predict(source=cv2_img, conf=conf_threshold, verbose=False)
-            res = results[0]
-            total_defects = len(res.boxes)
+  with col_result:
+    st.markdown(
+        "<h3 style='color: #881337;'>📊 2. ผลการวิเคราะห์และตรวจสอบ (QC"
+        " Analysis)</h3>",
+        unsafe_allow_html=True,
+    )
 
-            st.session_state.total_scanned += 1
+    if img_file_buffer is not None and st.session_state.qc_stage == "analyze":
+      with st.spinner("🔍 AI กำลังประมวลผลวิเคราะห์จุดบกพร่อง..."):
+        start_time = time.time()
+        bytes_data = img_file_buffer.getvalue()
+        cv2_img = cv2.imdecode(
+            np.frombuffer(bytes_data, np.uint8), cv2.IMREAD_COLOR
+        )
 
-            if total_defects == 0:
-                st.session_state.pass_count += 1
-                annotated_frame = cv2_img.copy()
-                cv2.putText(annotated_frame, "QC: PASS (GOOD)", (30, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
-                
-                st.markdown('<div class="status-pass">🟢 สถานะชิ้นงาน: PASS (ผ่านเกณฑ์)</div>', unsafe_allow_html=True)
-                st.success("✨ ชิ้นงานสมบูรณ์แบบ ไม่พบรอยแตกร้าวหรือรอยขีดข่วน")
-            else:
-                st.session_state.fail_count += 1
-                annotated_frame = res.plot()
-                cv2.putText(annotated_frame, f"QC: FAIL ({total_defects})", (30, 50), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 3)
-                
-                st.markdown(f'<div class="status-fail">🔴 สถานะชิ้นงาน: FAIL (พบตำหนิ {total_defects} จุด)</div>', unsafe_allow_html=True)
-                
-                class_ids = res.boxes.cls.cpu().numpy().astype(int)
-                class_names = [model.names[i] for i in class_ids]
-                counts = Counter(class_names)
-                
-                crack_cnt = counts.get('crack', 0)
-                scratch_cnt = counts.get('scratch', 0)
-                
-                m1, m2 = st.columns(2)
-                m1.metric("💥 รอยแตกร้าว (Crack)", f"{crack_cnt} จุด")
-                m2.metric("⚡ รอยขีดข่วน (Scratch)", f"{scratch_cnt} จุด")
+        results = model.predict(
+            source=cv2_img, conf=conf_threshold, verbose=False
+        )
+        res = results[0]
+        proc_time = round((time.time() - start_time) * 1000, 2)
+        total_defects = len(res.boxes)
 
-            frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-            st.image(frame_rgb, caption="ภาพผลการวิเคราะห์จาก AI", use_container_width=True)
-            
-            st.markdown("""
-            <div style='background-color: #FFFFFF; border: 1px solid #FECDD3; border-radius: 12px; padding: 16px; margin-top: 12px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);'>
-                <h4 style='color: #881337; margin: 0 0 8px 0; font-size: 16px;'>📋 สรุปรายละเอียดผลการตรวจ (Detailed Result)</h4>
+        class_ids = res.boxes.cls.cpu().numpy().astype(int)
+        class_names = [model.names[i] for i in class_ids]
+        counts = Counter(class_names)
+
+        crack_cnt = counts.get("crack", 0)
+        scratch_cnt = counts.get("scratch", 0)
+        status = "PASS" if total_defects == 0 else "FAIL"
+
+        save_log(
+            status,
+            total_defects,
+            crack_cnt,
+            scratch_cnt,
+            conf_threshold,
+            proc_time,
+        )
+
+        st.session_state.total_scanned += 1
+
+        if status == "PASS":
+          st.session_state.pass_count += 1
+          annotated_frame = cv2_img.copy()
+          cv2.putText(
+              annotated_frame,
+              "QC: PASS (GOOD)",
+              (30, 50),
+              cv2.FONT_HERSHEY_SIMPLEX,
+              1.2,
+              (0, 255, 0),
+              3,
+          )
+
+          st.markdown(
+              '<div class="status-pass">🟢 สถานะชิ้นงาน: PASS'
+              " (ผ่านเกณฑ์)</div>",
+              unsafe_allow_html=True,
+          )
+          st.success("✨ ชิ้นงานสมบูรณ์แบบ ไม่พบรอยแตกร้าวหรือรอยขีดข่วน")
+        else:
+          st.session_state.fail_count += 1
+          annotated_frame = res.plot()
+          cv2.putText(
+              annotated_frame,
+              f"QC: FAIL ({total_defects})",
+              (30, 50),
+              cv2.FONT_HERSHEY_SIMPLEX,
+              1.2,
+              (0, 0, 255),
+              3,
+          )
+
+          st.markdown(
+              '<div class="status-fail">🔴 สถานะชิ้นงาน: FAIL (พบตำหนิ'
+              f" {total_defects} จุด)</div>",
+              unsafe_allow_html=True,
+          )
+
+          m1, m2 = st.columns(2)
+          m1.metric("💥 รอยแตกร้าว (Crack)", f"{crack_cnt} จุด")
+          m2.metric("⚡ รอยขีดข่วน (Scratch)", f"{scratch_cnt} จุด")
+
+        frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+        st.image(
+            frame_rgb, caption="ภาพผลการวิเคราะห์จาก AI", use_container_width=True
+        )
+
+        st.markdown(f"""
+            <div style='background-color: #FFFFFF; border: 1px solid #FECDD3; border-radius: 12px; padding: 16px; margin-top: 12px; margin-bottom: 15px;'>
+                <h4 style='color: #881337; margin: 0 0 8px 0;'>📋 สรุปรายละเอียดการตรวจ</h4>
+                <p style='margin: 0; font-size: 14px;'>
+                    <b>เวลาประมวลผล:</b> {proc_time} ms | <b>บันทึกเข้า Database:</b> สำเร็จเรียบร้อย
+                </p>
+            </div>
             """, unsafe_allow_html=True)
-            
-            if total_defects == 0:
-                st.markdown("""
-                <p style='color: #065F46; font-size: 15px; margin: 0; line-height: 1.6;'>
-                    <b>ผลการประเมิน:</b> ✅ <span style='background-color:#E6F4EA; padding:2px 8px; border-radius:4px;'><b>ชิ้นงานดีเยี่ยม (PASS / GOOD)</b></span><br>
-                    <b>คำอธิบาย:</b> ตรวจสอบผิวโลหะไม่พบรอยแตกร้าว (Crack) หรือรอยขีดข่วน (Scratch) ชิ้นงานได้มาตรฐาน สามารถส่งต่อกระบวนการถัดไปได้ทันที
-                </p>
-                """, unsafe_allow_html=True)
-            else:
-                defect_items = []
-                for cls_name, cnt in counts.items():
-                    if cls_name.lower() == 'crack':
-                        defect_items.append(f"💥 <b>รอยแตกร้าว (Crack):</b> {cnt} จุด")
-                    elif cls_name.lower() == 'scratch':
-                        defect_items.append(f"⚡ <b>รอยขีดข่วน (Scratch):</b> {cnt} จุด")
-                    else:
-                        defect_items.append(f"⚠️ <b>{cls_name}:</b> {cnt} จุด")
-                
-                defect_str = "<br>• ".join(defect_items)
-                
-                st.markdown(f"""
-                <p style='color: #991B1B; font-size: 15px; margin: 0; line-height: 1.6;'>
-                    <b>ผลการประเมิน:</b> ❌ <span style='background-color:#FCE8E6; padding:2px 8px; border-radius:4px;'><b>ชิ้นงานชำรุด (FAIL / DEFECTIVE)</b></span><br>
-                    <b>รายละเอียดยอดตำหนิที่พบ (รวม {total_defects} จุด):</b><br>
-                    • {defect_str}
-                </p>
-                """, unsafe_allow_html=True)
-                
-            st.markdown("</div>", unsafe_allow_html=True)
-            
-            st.markdown("<hr>", unsafe_allow_html=True)
-            if st.button("⏭️ ตรวจสอบชิ้นถัดไป (Inspect Next Item)", type="primary", use_container_width=True):
-                st.session_state.camera_key += 1
-                st.session_state.qc_stage = 'capture'
-                st.session_state.should_scroll = True
-                st.rerun()
 
+        st.markdown("<hr>", unsafe_allow_html=True)
+        if st.button(
+            "⏭️ ตรวจสอบชิ้นถัดไป (Inspect Next Item)",
+            type="primary",
+            use_container_width=True,
+        ):
+          st.session_state.camera_key += 1
+          st.session_state.qc_stage = "capture"
+          st.session_state.should_scroll = True
+          st.rerun()
     else:
-        st.info("👈 **ขั้นตอน:** เลือกรูปภาพทางฝั่งซ้าย -> กดปุ่ม '✅ ยืนยันใช้รูปนี้ส่งตรวจ' เพื่อเริ่มต้นวิเคราะห์ผล")
+      st.info(
+          "👈 **ขั้นตอน:** เลือกรูปภาพทางฝั่งซ้าย -> กดปุ่ม '✅"
+          " ยืนยันใช้รูปนี้ส่งตรวจ' เพื่อเริ่มต้นวิเคราะห์ผล"
+      )
+
+elif app_mode == "📜 ประวัติการตรวจ & Export":
+  st.title("📜 ประวัติการตรวจสอบชิ้นงานย้อนหลัง")
+  st.caption(
+      "ระบบบันทึกประวัติละเอียด แยกตามวันที่ เวลา กะการทำงาน (Shift)"
+      " และประเภทความเสียหาย พร้อมส่งออกไฟล์"
+  )
+
+  df_logs = get_all_logs()
+
+  if not df_logs.empty:
+    st.markdown("### 📥 ดาวน์โหลดรายงานประวัติการทำงาน")
+    col_ex1, col_ex2 = st.columns(2)
+
+    with col_ex1:
+      excel_bytes = export_to_excel(df_logs)
+      st.download_button(
+          label="📗 ดาวน์โหลดรายงานไฟล์ Excel (.xlsx)",
+          data=excel_bytes,
+          file_name=f"QC_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          use_container_width=True,
+      )
+
+    with col_ex2:
+      csv_bytes = df_logs.to_csv(index=False).encode("utf-8-sig")
+      st.download_button(
+          label="📄 ดาวน์โหลดรายงานไฟล์ CSV (.csv)",
+          data=csv_bytes,
+          file_name=f"QC_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+          mime="text/csv",
+          use_container_width=True,
+      )
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown("### 📋 ตารางบันทึกข้อมูลย้อนหลังทั้งหมด")
+    st.dataframe(df_logs, use_container_width=True, height=450)
+  else:
+    st.info("ยังไม่มีข้อมูลประวัติการตรวจในระบบ")
+
+elif app_mode == "📊 Power BI Dashboard":
+  st.title("📊 Executive Dashboard (Power BI Integrated)")
+  st.caption("แดชบอร์ดสรุปผลเชิงบริหาร เชื่อมโยงข้อมูลประวัติการตรวจแบบ Interactive")
+
+  POWER_BI_EMBED_URL = "https://app.powerbi.com/view?r=YOUR_POWER_BI_LINK_HERE"
+
+  st.components.v1.iframe(
+      src=POWER_BI_EMBED_URL, width=1200, height=650, scrolling=True
+  )
