@@ -87,9 +87,7 @@ def save_log(status, total_defects, crack_cnt, scratch_cnt, conf, proc_time_ms):
 
 def get_all_logs():
     conn = sqlite3.connect("qc_metrics.db")
-    df = pd.read_sql_query(
-        "SELECT * FROM qc_logs ORDER BY id DESC", conn
-    )
+    df = pd.read_sql_query("SELECT * FROM qc_logs ORDER BY id DESC", conn)
     conn.close()
     return df
 
@@ -530,6 +528,16 @@ elif app_mode == "📊 Power BI Dashboard":
 
     POWER_BI_EMBED_URL = "https://app.powerbi.com/view?r=eyJrIjoiZjUxZjQ4NDItOWQ3NS00NDIzLTg2ZDctOGI1OGI3NGI1ZWIzIiwidCI6IjhhOWQzNmYwLTVjOWEtNGU0MC1hYzVkLTQxZmY4M2ZjZTA2NCIsImMiOjEwfQ%3D%3D"
 
-    components.iframe(
-        src=POWER_BI_EMBED_URL, width=1200, height=650, scrolling=True
+    # แสดงผล Power BI iframe แบบกว้างเต็มความจุหน้าจอ (100% responsive width)
+    st.markdown(
+        f"""
+        <iframe 
+            src="{POWER_BI_EMBED_URL}" 
+            width="100%" 
+            height="750" 
+            style="border:none; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05);"
+            allowFullScreen="true">
+        </iframe>
+        """,
+        unsafe_allow_html=True,
     )
