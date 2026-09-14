@@ -2,7 +2,7 @@ import io
 import sqlite3
 import time
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import cv2
 import numpy as np
@@ -10,6 +10,9 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 from ultralytics import YOLO
+
+# กำหนด Timezone ประเทศไทย (UTC+7)
+THAILAND_TZ = timezone(timedelta(hours=7))
 
 st.set_page_config(
     page_title="M.A.T.R.I.X. Nut - QC & Power BI Enterprise",
@@ -54,7 +57,8 @@ def init_db():
 def save_log(status, total_defects, crack_cnt, scratch_cnt, conf, proc_time_ms):
     conn = sqlite3.connect("qc_metrics.db")
     cursor = conn.cursor()
-    now = datetime.now()
+    # ดึงเวลาปัจจุบันอ้างอิง Timezone ประเทศไทย
+    now = datetime.now(THAILAND_TZ)
     ts = now.strftime("%Y-%m-%d %H:%M:%S")
     date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H:%M:%S")
@@ -147,26 +151,33 @@ custom_css = """
         margin-bottom: 10px;
     }
 
+    /* ปรับแต่งหัวข้อ Radio Button */
     div[data-testid="stRadio"] > label p {
         color: #881337 !important;
         font-size: 18px !important;
         font-weight: 700 !important;
     }
 
-    div[data-testid="stRadio"] div[role="radiogroup"] label p,
-    div[data-testid="stRadio"] div[role="radiogroup"] span {
-        color: #1F2937 !important;
-        font-size: 17px !important;
-        font-weight: 600 !important;
-    }
-
+    /* จัดระเบียบบล็อกตัวเลือกเมนูให้ไอคอนและข้อความตรงกันสมดุล */
     div[data-testid="stRadio"] div[role="radiogroup"] label {
         background-color: #FFFFFF !important;
-        padding: 10px 16px !important;
-        border-radius: 8px !important;
+        padding: 10px 14px !important;
+        border-radius: 10px !important;
         border: 1.5px solid #FECDD3 !important;
-        margin-right: 10px !important;
+        margin-bottom: 8px !important;
+        margin-right: 0px !important;
+        display: flex !important;
+        align-items: center !important;
         box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
+        width: 100% !important;
+    }
+
+    div[data-testid="stRadio"] div[role="radiogroup"] label p {
+        color: #1F2937 !important;
+        font-size: 15px !important;
+        font-weight: 600 !important;
+        margin: 0 !important;
+        line-height: 1.4 !important;
     }
 
     div[data-testid="stMetric"] {
@@ -496,12 +507,14 @@ elif app_mode == "📜 ประวัติการตรวจ & Export":
         st.markdown("### 📥 ดาวน์โหลดรายงานประวัติการทำงาน")
         col_ex1, col_ex2 = st.columns(2)
 
+        now_th = datetime.now(THAILAND_TZ)
+
         with col_ex1:
             excel_bytes = export_to_excel(df_logs)
             st.download_button(
                 label="📗 ดาวน์โหลดรายงานไฟล์ Excel (.xlsx)",
                 data=excel_bytes,
-                file_name=f"QC_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                file_name=f"QC_Report_{now_th.strftime('%Y%m%d_%H%M%S')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
@@ -511,7 +524,7 @@ elif app_mode == "📜 ประวัติการตรวจ & Export":
             st.download_button(
                 label="📄 ดาวน์โหลดรายงานไฟล์ CSV (.csv)",
                 data=csv_bytes,
-                file_name=f"QC_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"QC_Report_{now_th.strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
@@ -528,7 +541,6 @@ elif app_mode == "📊 Power BI Dashboard":
 
     POWER_BI_EMBED_URL = "https://app.powerbi.com/view?r=eyJrIjoiZjUxZjQ4NDItOWQ3NS00NDIzLTg2ZDctOGI1OGI3NGI1ZWIzIiwidCI6IjhhOWQzNmYwLTVjOWEtNGU0MC1hYzVkLTQxZmY4M2ZjZTA2NCIsImMiOjEwfQ%3D%3D"
 
-    # แสดงผล Power BI iframe แบบกว้างเต็มความจุหน้าจอ (100% responsive width)
     st.markdown(
         f"""
         <iframe 
